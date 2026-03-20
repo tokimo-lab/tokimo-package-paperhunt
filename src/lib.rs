@@ -7,6 +7,7 @@ pub mod download;
 
 pub use paper::{Paper, DownloadEvent};
 pub use provider::PaperProvider;
+pub use download::paper_from_id;
 
 use futures::Stream;
 use tokio_stream::wrappers::ReceiverStream;

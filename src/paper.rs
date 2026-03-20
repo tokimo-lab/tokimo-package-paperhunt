@@ -1,4 +1,4 @@
-use colored::Colorize;
+use serde::{Deserialize, Serialize};
 
 /// Events for streaming paper PDF downloads.
 #[derive(Debug, Clone)]
@@ -22,7 +22,7 @@ pub enum DownloadEvent {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Paper {
     pub title: String,
     pub authors: Vec<String>,
@@ -72,67 +72,4 @@ impl Paper {
 
         format!("{}-{}.pdf", year, truncated)
     }
-}
-
-/// Print a list of papers as a formatted table.
-pub fn print_results(papers: &[Paper]) {
-    if papers.is_empty() {
-        println!("{}", "No results found.".yellow());
-        return;
-    }
-
-    println!(
-        "\n{} {}",
-        "Found".green().bold(),
-        format!("{} paper(s):", papers.len()).green().bold()
-    );
-    println!("{}", "─".repeat(100).dimmed());
-
-    for (i, paper) in papers.iter().enumerate() {
-        let idx = format!("[{}]", i + 1).cyan().bold();
-        let title = paper.title.bold();
-        println!("{} {}", idx, title);
-
-        let authors_str = if paper.authors.len() > 3 {
-            format!(
-                "{}, et al.",
-                paper.authors[..3].join(", ")
-            )
-        } else {
-            paper.authors.join(", ")
-        };
-        println!("    {} {}", "Authors:".dimmed(), authors_str);
-
-        if let Some(date) = &paper.published_date {
-            println!("    {} {}", "Date:".dimmed(), date);
-        }
-
-        let id_label = match paper.source.as_str() {
-            "arxiv" => "arXiv ID:",
-            _ => "Paper ID:",
-        };
-        println!("    {} {}", id_label.dimmed(), paper.identifier().yellow());
-
-        if let Some(doi) = &paper.doi {
-            println!("    {} {}", "DOI:".dimmed(), doi);
-        }
-
-        if let Some(count) = paper.citation_count {
-            println!("    {} {}", "Citations:".dimmed(), count);
-        }
-
-        let source_colored = match paper.source.as_str() {
-            "arxiv" => paper.source.red(),
-            "semantic_scholar" => paper.source.blue(),
-            "openalex" => paper.source.magenta(),
-            _ => paper.source.normal(),
-        };
-        println!("    {} {}", "Source:".dimmed(), source_colored);
-
-        if i < papers.len() - 1 {
-            println!("{}", "─".repeat(100).dimmed());
-        }
-    }
-
-    println!("{}", "─".repeat(100).dimmed());
 }
