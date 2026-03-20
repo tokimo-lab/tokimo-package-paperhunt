@@ -3,12 +3,25 @@ name = "paperhunt"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "paperhunt"
+path = "src/lib.rs"
+
+[[bin]]
+name = "paperhunt"
+path = "src/main.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-reqwest = { version = "0.12", features = ["blocking", "json"] }
+reqwest = { version = "0.12", features = ["json", "cookies", "gzip", "brotli", "stream"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 quick-xml = "0.36"
 chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1"
 colored = "2"
+async-trait = "0.1"
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+tokio-stream = "0.1"
+indicatif = "0.17"

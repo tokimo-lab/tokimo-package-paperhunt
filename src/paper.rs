@@ -1,5 +1,27 @@
 use colored::Colorize;
 
+/// Events for streaming paper PDF downloads.
+#[derive(Debug, Clone)]
+pub enum DownloadEvent {
+    /// File metadata (first event)
+    FileInfo {
+        title: String,
+        authors: Vec<String>,
+        filename: String,
+        total_bytes: Option<u64>,
+    },
+    /// A chunk of PDF data
+    Data {
+        bytes: Vec<u8>,
+        downloaded: u64,
+    },
+    /// Download complete
+    Done {
+        filename: String,
+        total_bytes: u64,
+    },
+}
+
 #[derive(Debug, Clone)]
 pub struct Paper {
     pub title: String,

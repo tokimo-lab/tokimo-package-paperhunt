@@ -1,18 +1,12 @@
-mod arxiv;
-mod download;
-mod openalex;
-mod paper;
-mod semantic_scholar;
-
 use std::path::PathBuf;
-use std::thread;
-use std::time::Duration;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use colored::Colorize;
+use futures::StreamExt;
 
-use paper::print_results;
+use paperhunt::paper::print_results;
+use paperhunt::{download, search_stream, Paper};
 
 #[derive(Parser)]
 #[command(name = "paperhunt", version, about = "Search and download academic papers")]
@@ -77,15 +71,16 @@ enum Source {
 }
 
 fn main() {
-    let cli = Cli::parse();
-
-    if let Err(e) = run(cli) {
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+    if let Err(e) = rt.block_on(async_main()) {
         eprintln!("{} {:#}", "Error:".red().bold(), e);
         std::process::exit(1);
     }
 }
 
-fn run(cli: Cli) -> Result<()> {
+async fn async_main() -> Result<()> {
+    let cli = Cli::parse();
+
     match cli.command {
         Commands::Search {
             query,
@@ -100,7 +95,8 @@ fn run(cli: Cli) -> Result<()> {
                 limit,
                 since.as_deref(),
                 until.as_deref(),
-            )?;
+            )
+            .await?;
             print_results(&papers);
         }
 
@@ -112,11 +108,11 @@ fn run(cli: Cli) -> Result<()> {
             output,
         } => {
             if let Some(query) = from_search {
-                let papers = do_search(&query, &source, limit, None, None)?;
+                let papers = do_search(&query, &source, limit, None, None).await?;
                 print_results(&papers);
-                download::download_papers(&papers, &output)?;
+                download::download_papers(&papers, &output).await?;
             } else if let Some(id) = id {
-                download::download_by_id(&id, &output)?;
+                download::download_by_id(&id, &output).await?;
             } else {
                 anyhow::bail!("Provide a DOI/arXiv ID or use --from-search <query>");
             }
@@ -126,52 +122,40 @@ fn run(cli: Cli) -> Result<()> {
     Ok(())
 }
 
-fn do_search(
+async fn do_search(
     query: &str,
     source: &Source,
     limit: usize,
     since: Option<&str>,
     until: Option<&str>,
-) -> Result<Vec<paper::Paper>> {
-    let mut papers = Vec::new();
+) -> Result<Vec<Paper>> {
+    println!("{}", "Searching...".dimmed());
 
-    let search_arxiv = matches!(source, Source::Arxiv | Source::All);
-    let search_ss = matches!(source, Source::SemanticScholar | Source::All);
-    let search_oa = matches!(source, Source::Openalex | Source::All);
+    let mut stream = search_stream(
+        query,
+        limit,
+        since.map(|s| s.to_string()),
+        until.map(|s| s.to_string()),
+    );
 
-    if search_arxiv {
-        println!("{}", "Searching arXiv...".dimmed());
-        match arxiv::search(query, limit, since, until) {
-            Ok(mut results) => papers.append(&mut results),
-            Err(e) => eprintln!("{} arXiv search failed: {:#}", "Warning:".yellow(), e),
-        }
-        if search_ss || search_oa {
-            thread::sleep(Duration::from_secs(1));
-        }
+    let mut all: Vec<Paper> = Vec::new();
+    while let Some(p) = stream.next().await {
+        all.push(p);
     }
 
-    if search_oa {
-        println!("{}", "Searching OpenAlex...".dimmed());
-        match openalex::search(query, limit, since, until) {
-            Ok(mut results) => papers.append(&mut results),
-            Err(e) => eprintln!("{} OpenAlex search failed: {:#}", "Warning:".yellow(), e),
-        }
-        if search_ss {
-            thread::sleep(Duration::from_secs(1));
-        }
-    }
+    // Filter by source if not "all"
+    let all = match source {
+        Source::Arxiv => all.into_iter().filter(|p| p.source == "arxiv").collect(),
+        Source::SemanticScholar => all
+            .into_iter()
+            .filter(|p| p.source == "semantic_scholar")
+            .collect(),
+        Source::Openalex => all
+            .into_iter()
+            .filter(|p| p.source == "openalex")
+            .collect(),
+        Source::All => all,
+    };
 
-    if search_ss {
-        println!("{}", "Searching Semantic Scholar...".dimmed());
-        match semantic_scholar::search(query, limit, since, until) {
-            Ok(mut results) => papers.append(&mut results),
-            Err(e) => eprintln!(
-                "{} Semantic Scholar search failed: {:#}",
-                "Warning:".yellow(),
-                e
-            ),
-        }
-    }
-
-    Ok(papers)
+    Ok(all)
 }

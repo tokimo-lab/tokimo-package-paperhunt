@@ -1,9 +1,10 @@
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use serde::Deserialize;
-use std::thread;
 use std::time::Duration;
 
 use crate::paper::Paper;
+use crate::provider::PaperProvider;
 
 const SS_API: &str = "https://api.semanticscholar.org/graph/v1/paper/search";
 
@@ -57,82 +58,105 @@ struct SsOpenAccessPdf {
     url: Option<String>,
 }
 
-/// Search Semantic Scholar for papers matching `query`.
-pub fn search(
-    query: &str,
-    limit: usize,
-    since: Option<&str>,
-    until: Option<&str>,
-) -> Result<Vec<Paper>> {
-    let client = reqwest::blocking::Client::new();
+pub struct SemanticScholarProvider {
+    client: reqwest::Client,
+}
 
-    let date_range = match (since, until) {
-        (Some(s), Some(u)) => Some(format!("{}:{}", s, u)),
-        (Some(s), None) => Some(format!("{}:", s)),
-        (None, Some(u)) => Some(format!(":{}", u)),
-        _ => None,
-    };
-
-    let effective_limit = limit.min(100);
-
-    let mut params: Vec<(&str, String)> = vec![
-        ("query", query.to_string()),
-        ("fields", FIELDS.to_string()),
-        ("limit", effective_limit.to_string()),
-        ("offset", "0".to_string()),
-    ];
-
-    if let Some(ref dr) = date_range {
-        params.push(("publicationDateOrYear", dr.clone()));
-    }
-
-    let resp = client
-        .get(SS_API)
-        .header("User-Agent", "paperhunt/0.1.0 (academic-paper-search-cli)")
-        .query(&params)
-        .send()
-        .context("Failed to query Semantic Scholar API")?;
-
-    let status = resp.status();
-    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-        // Retry with backoff
-        for attempt in 1..=3 {
-            let wait = Duration::from_secs(5 * attempt);
-            eprintln!("  Rate limited, retrying in {}s...", wait.as_secs());
-            thread::sleep(wait);
-            let retry_resp = client
-                .get(SS_API)
-                .header("User-Agent", "paperhunt/0.1.0 (academic-paper-search-cli)")
-                .query(&params)
-                .send()
-                .context("Failed to query Semantic Scholar API")?;
-            if retry_resp.status().is_success() {
-                let ss_resp: SsResponse = retry_resp
-                    .json()
-                    .context("Failed to parse Semantic Scholar response")?;
-                return Ok(convert_papers(ss_resp));
-            }
-            if retry_resp.status() != reqwest::StatusCode::TOO_MANY_REQUESTS {
-                let body = retry_resp.text().unwrap_or_default();
-                anyhow::bail!("Semantic Scholar API returned HTTP {}: {}", status, body);
-            }
+impl SemanticScholarProvider {
+    pub fn new() -> Self {
+        Self {
+            client: reqwest::Client::new(),
         }
-        anyhow::bail!("Semantic Scholar API rate limit exceeded after retries");
     }
-    if !status.is_success() {
-        let body = resp.text().unwrap_or_default();
-        anyhow::bail!(
-            "Semantic Scholar API returned HTTP {}: {}",
-            status,
-            body
-        );
+}
+
+#[async_trait]
+impl PaperProvider for SemanticScholarProvider {
+    fn name(&self) -> &str {
+        "semantic_scholar"
     }
 
-    let ss_resp: SsResponse = resp
-        .json()
-        .context("Failed to parse Semantic Scholar response")?;
+    async fn search(
+        &self,
+        query: &str,
+        limit: usize,
+        since: Option<&str>,
+        until: Option<&str>,
+    ) -> Result<Vec<Paper>> {
+        let date_range = match (since, until) {
+            (Some(s), Some(u)) => Some(format!("{}:{}", s, u)),
+            (Some(s), None) => Some(format!("{}:", s)),
+            (None, Some(u)) => Some(format!(":{}", u)),
+            _ => None,
+        };
 
-    Ok(convert_papers(ss_resp))
+        let effective_limit = limit.min(100);
+
+        let mut params: Vec<(&str, String)> = vec![
+            ("query", query.to_string()),
+            ("fields", FIELDS.to_string()),
+            ("limit", effective_limit.to_string()),
+            ("offset", "0".to_string()),
+        ];
+
+        if let Some(ref dr) = date_range {
+            params.push(("publicationDateOrYear", dr.clone()));
+        }
+
+        let resp = self
+            .client
+            .get(SS_API)
+            .header("User-Agent", "paperhunt/0.1.0 (academic-paper-search-cli)")
+            .query(&params)
+            .send()
+            .await
+            .context("Failed to query Semantic Scholar API")?;
+
+        let status = resp.status();
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            // Retry with backoff
+            for attempt in 1..=3 {
+                let wait = Duration::from_secs(5 * attempt);
+                eprintln!("  Rate limited, retrying in {}s...", wait.as_secs());
+                tokio::time::sleep(wait).await;
+                let retry_resp = self
+                    .client
+                    .get(SS_API)
+                    .header("User-Agent", "paperhunt/0.1.0 (academic-paper-search-cli)")
+                    .query(&params)
+                    .send()
+                    .await
+                    .context("Failed to query Semantic Scholar API")?;
+                if retry_resp.status().is_success() {
+                    let ss_resp: SsResponse = retry_resp
+                        .json()
+                        .await
+                        .context("Failed to parse Semantic Scholar response")?;
+                    return Ok(convert_papers(ss_resp));
+                }
+                if retry_resp.status() != reqwest::StatusCode::TOO_MANY_REQUESTS {
+                    let body = retry_resp.text().await.unwrap_or_default();
+                    anyhow::bail!("Semantic Scholar API returned HTTP {}: {}", status, body);
+                }
+            }
+            anyhow::bail!("Semantic Scholar API rate limit exceeded after retries");
+        }
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            anyhow::bail!(
+                "Semantic Scholar API returned HTTP {}: {}",
+                status,
+                body
+            );
+        }
+
+        let ss_resp: SsResponse = resp
+            .json()
+            .await
+            .context("Failed to parse Semantic Scholar response")?;
+
+        Ok(convert_papers(ss_resp))
+    }
 }
 
 fn convert_papers(ss_resp: SsResponse) -> Vec<Paper> {

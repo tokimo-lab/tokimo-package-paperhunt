@@ -5,11 +5,11 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use colored::Colorize;
 
-use crate::paper::Paper;
+use crate::paper::{DownloadEvent, Paper};
 
 /// Download the PDF for a single paper into `output_dir`.
 /// Returns the path of the downloaded file on success.
-pub fn download_paper(paper: &Paper, output_dir: &Path) -> Result<String> {
+pub async fn download_paper(paper: &Paper, output_dir: &Path) -> Result<String> {
     let url = paper
         .pdf_url
         .as_deref()
@@ -26,7 +26,7 @@ pub fn download_paper(paper: &Paper, output_dir: &Path) -> Result<String> {
         filename.dimmed()
     );
 
-    let client = reqwest::blocking::Client::builder()
+    let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::limited(10))
         .build()
         .context("Failed to build HTTP client")?;
@@ -34,13 +34,14 @@ pub fn download_paper(paper: &Paper, output_dir: &Path) -> Result<String> {
     let resp = client
         .get(url)
         .send()
+        .await
         .with_context(|| format!("Failed to download from {}", url))?;
 
     if !resp.status().is_success() {
         anyhow::bail!("HTTP {} when downloading {}", resp.status(), url);
     }
 
-    let bytes = resp.bytes().context("Failed to read response body")?;
+    let bytes = resp.bytes().await.context("Failed to read response body")?;
 
     let mut file = fs::File::create(&dest)
         .with_context(|| format!("Failed to create file {}", dest.display()))?;
@@ -58,7 +59,7 @@ pub fn download_paper(paper: &Paper, output_dir: &Path) -> Result<String> {
 }
 
 /// Download PDFs for a list of papers. Prints a summary at the end.
-pub fn download_papers(papers: &[Paper], output_dir: &Path) -> Result<()> {
+pub async fn download_papers(papers: &[Paper], output_dir: &Path) -> Result<()> {
     if papers.is_empty() {
         println!("{}", "No papers to download.".yellow());
         return Ok(());
@@ -75,7 +76,7 @@ pub fn download_papers(papers: &[Paper], output_dir: &Path) -> Result<()> {
     let mut fail_count = 0usize;
 
     for paper in papers {
-        match download_paper(paper, output_dir) {
+        match download_paper(paper, output_dir).await {
             Ok(_) => ok_count += 1,
             Err(e) => {
                 eprintln!("  {} {}: {}", "Error".red(), paper.title, e);
@@ -95,7 +96,7 @@ pub fn download_papers(papers: &[Paper], output_dir: &Path) -> Result<()> {
 }
 
 /// Download a paper identified by a raw DOI or arXiv ID.
-pub fn download_by_id(id: &str, output_dir: &Path) -> Result<()> {
+pub async fn download_by_id(id: &str, output_dir: &Path) -> Result<()> {
     let paper = if looks_like_arxiv(id) {
         let clean_id = id.strip_prefix("arXiv:").unwrap_or(id);
         Paper {
@@ -110,7 +111,6 @@ pub fn download_by_id(id: &str, output_dir: &Path) -> Result<()> {
             citation_count: None,
         }
     } else {
-        // Treat as DOI
         Paper {
             title: id.to_string(),
             authors: vec![],
@@ -124,8 +124,81 @@ pub fn download_by_id(id: &str, output_dir: &Path) -> Result<()> {
         }
     };
 
-    download_paper(&paper, output_dir)?;
+    download_paper(&paper, output_dir).await?;
     Ok(())
+}
+
+/// Stream download events for a paper PDF via an mpsc channel.
+pub async fn download_paper_stream(
+    paper: &Paper,
+    tx: tokio::sync::mpsc::Sender<Result<DownloadEvent>>,
+) {
+    macro_rules! send {
+        ($val:expr) => {
+            if tx.send($val).await.is_err() {
+                return;
+            }
+        };
+    }
+
+    let url = match paper.pdf_url.as_deref() {
+        Some(u) => u,
+        None => {
+            send!(Err(anyhow::anyhow!("No PDF URL")));
+            return;
+        }
+    };
+
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .unwrap();
+
+    let resp = match client.get(url).send().await {
+        Ok(r) if r.status().is_success() => r,
+        Ok(r) => {
+            send!(Err(anyhow::anyhow!("HTTP {}", r.status())));
+            return;
+        }
+        Err(e) => {
+            send!(Err(e.into()));
+            return;
+        }
+    };
+
+    let total_bytes = resp.content_length();
+    let filename = paper.filename();
+
+    send!(Ok(DownloadEvent::FileInfo {
+        title: paper.title.clone(),
+        authors: paper.authors.clone(),
+        filename: filename.clone(),
+        total_bytes,
+    }));
+
+    let mut downloaded = 0u64;
+    let mut resp = resp;
+    loop {
+        match resp.chunk().await {
+            Ok(Some(chunk)) => {
+                downloaded += chunk.len() as u64;
+                send!(Ok(DownloadEvent::Data {
+                    bytes: chunk.to_vec(),
+                    downloaded,
+                }));
+            }
+            Ok(None) => break,
+            Err(e) => {
+                send!(Err(e.into()));
+                return;
+            }
+        }
+    }
+
+    send!(Ok(DownloadEvent::Done {
+        filename,
+        total_bytes: downloaded,
+    }));
 }
 
 /// Simple heuristic: arXiv IDs look like `2301.00306` or `2301.00306v4`.

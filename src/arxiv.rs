@@ -1,51 +1,73 @@
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use quick_xml::events::Event;
 use quick_xml::Reader;
 
 use crate::paper::Paper;
+use crate::provider::PaperProvider;
 
 const ARXIV_API: &str = "https://export.arxiv.org/api/query";
 
-/// Search arXiv for papers matching `query`.
-pub fn search(
-    query: &str,
-    limit: usize,
-    since: Option<&str>,
-    until: Option<&str>,
-) -> Result<Vec<Paper>> {
-    // Quote the query to handle multi-word searches properly
-    let mut search_query = if query.contains(' ') && !query.contains('"') {
-        format!("all:\"{}\"", query)
-    } else {
-        format!("all:{}", query)
-    };
+pub struct ArxivProvider {
+    client: reqwest::Client,
+}
 
-    if since.is_some() || until.is_some() {
-        let from = since
-            .map(|d| format!("{}0000", d.replace('-', "")))
-            .unwrap_or_else(|| "000001010000".to_string());
-        let to = until
-            .map(|d| format!("{}2359", d.replace('-', "")))
-            .unwrap_or_else(|| "999912312359".to_string());
-        search_query = format!("{} AND submittedDate:[{} TO {}]", search_query, from, to);
+impl ArxivProvider {
+    pub fn new() -> Self {
+        Self {
+            client: reqwest::Client::new(),
+        }
+    }
+}
+
+#[async_trait]
+impl PaperProvider for ArxivProvider {
+    fn name(&self) -> &str {
+        "arxiv"
     }
 
-    let client = reqwest::blocking::Client::new();
-    let resp = client
-        .get(ARXIV_API)
-        .query(&[
-            ("search_query", search_query.as_str()),
-            ("start", "0"),
-            ("max_results", &limit.to_string()),
-            ("sortBy", "submittedDate"),
-            ("sortOrder", "descending"),
-        ])
-        .send()
-        .context("Failed to query arXiv API")?
-        .text()
-        .context("Failed to read arXiv response")?;
+    async fn search(
+        &self,
+        query: &str,
+        limit: usize,
+        since: Option<&str>,
+        until: Option<&str>,
+    ) -> Result<Vec<Paper>> {
+        let mut search_query = if query.contains(' ') && !query.contains('"') {
+            format!("all:\"{}\"", query)
+        } else {
+            format!("all:{}", query)
+        };
 
-    parse_atom_feed(&resp)
+        if since.is_some() || until.is_some() {
+            let from = since
+                .map(|d| format!("{}0000", d.replace('-', "")))
+                .unwrap_or_else(|| "000001010000".to_string());
+            let to = until
+                .map(|d| format!("{}2359", d.replace('-', "")))
+                .unwrap_or_else(|| "999912312359".to_string());
+            search_query = format!("{} AND submittedDate:[{} TO {}]", search_query, from, to);
+        }
+
+        let resp = self
+            .client
+            .get(ARXIV_API)
+            .query(&[
+                ("search_query", search_query.as_str()),
+                ("start", "0"),
+                ("max_results", &limit.to_string()),
+                ("sortBy", "submittedDate"),
+                ("sortOrder", "descending"),
+            ])
+            .send()
+            .await
+            .context("Failed to query arXiv API")?
+            .text()
+            .await
+            .context("Failed to read arXiv response")?;
+
+        parse_atom_feed(&resp)
+    }
 }
 
 /// Parse an Atom XML feed from arXiv into `Paper` structs.
