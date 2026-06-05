@@ -32,11 +32,13 @@ struct OaWork {
     cited_by_count: Option<u32>,
     open_access: Option<OaOpenAccess>,
     #[serde(default)]
+    #[allow(dead_code)]
     ids: OaIds,
 }
 
 #[derive(Debug, Deserialize, Default)]
 struct OaIds {
+    #[allow(dead_code)]
     openalex: Option<String>,
     #[allow(dead_code)]
     doi: Option<String>,
@@ -59,6 +61,12 @@ struct OaOpenAccess {
 
 pub struct OpenAlexProvider {
     client: reqwest::Client,
+}
+
+impl Default for OpenAlexProvider {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl OpenAlexProvider {

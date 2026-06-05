@@ -37,20 +37,17 @@ pub fn search_stream(
         let s = since.clone();
         let u = until.clone();
         tokio::spawn(async move {
-            match tokio::time::timeout(
+            if let Ok(Ok(papers)) = tokio::time::timeout(
                 std::time::Duration::from_secs(30),
                 provider.search(&q, limit, s.as_deref(), u.as_deref()),
             )
             .await
             {
-                Ok(Ok(papers)) => {
-                    for p in papers {
-                        if tx.send(p).await.is_err() {
-                            break;
-                        }
+                for p in papers {
+                    if tx.send(p).await.is_err() {
+                        break;
                     }
                 }
-                _ => {}
             }
         });
     }

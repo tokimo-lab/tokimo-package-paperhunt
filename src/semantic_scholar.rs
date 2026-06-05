@@ -62,6 +62,12 @@ pub struct SemanticScholarProvider {
     client: reqwest::Client,
 }
 
+impl Default for SemanticScholarProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SemanticScholarProvider {
     pub fn new() -> Self {
         Self {
