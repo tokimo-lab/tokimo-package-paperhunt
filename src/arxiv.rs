@@ -116,8 +116,7 @@ fn parse_atom_feed(xml: &str) -> Result<Vec<Paper>> {
                         let mut link_title = String::new();
                         for attr in e.attributes().flatten() {
                             let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
-                            let val =
-                                String::from_utf8_lossy(&attr.value).to_string();
+                            let val = String::from_utf8_lossy(&attr.value).to_string();
                             if key == "href" {
                                 href = val;
                             } else if key == "title" {
@@ -157,10 +156,7 @@ fn parse_atom_feed(xml: &str) -> Result<Vec<Paper>> {
                 match local.as_str() {
                     "entry" => {
                         // Extract arXiv ID from the entry URL
-                        let arxiv_id = entry_id
-                            .rsplit('/')
-                            .next()
-                            .map(|s| s.to_string());
+                        let arxiv_id = entry_id.rsplit('/').next().map(|s| s.to_string());
 
                         // Build PDF url if not found from link
                         if pdf_url.is_none() {

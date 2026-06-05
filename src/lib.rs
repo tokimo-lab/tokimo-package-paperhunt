@@ -1,13 +1,13 @@
+pub mod arxiv;
+pub mod download;
+pub mod openalex;
 pub mod paper;
 pub mod provider;
-pub mod arxiv;
 pub mod semantic_scholar;
-pub mod openalex;
-pub mod download;
 
-pub use paper::{Paper, DownloadEvent};
-pub use provider::PaperProvider;
 pub use download::paper_from_id;
+pub use paper::{DownloadEvent, Paper};
+pub use provider::PaperProvider;
 
 use futures::Stream;
 use tokio_stream::wrappers::ReceiverStream;

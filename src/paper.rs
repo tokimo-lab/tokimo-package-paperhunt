@@ -11,15 +11,9 @@ pub enum DownloadEvent {
         total_bytes: Option<u64>,
     },
     /// A chunk of PDF data
-    Data {
-        bytes: Vec<u8>,
-        downloaded: u64,
-    },
+    Data { bytes: Vec<u8>, downloaded: u64 },
     /// Download complete
-    Done {
-        filename: String,
-        total_bytes: u64,
-    },
+    Done { filename: String, total_bytes: u64 },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,7 +52,13 @@ impl Paper {
         let title_clean: String = self
             .title
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == ' ' { c } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == ' ' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect::<String>()
             .split_whitespace()
             .collect::<Vec<_>>()

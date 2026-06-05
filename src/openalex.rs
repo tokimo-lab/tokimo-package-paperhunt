@@ -136,11 +136,10 @@ impl PaperProvider for OpenAlexProvider {
                     .filter_map(|a| a.author.as_ref().and_then(|au| au.display_name.clone()))
                     .collect();
 
-                let doi = w.doi.as_ref().map(|d| {
-                    d.strip_prefix("https://doi.org/")
-                        .unwrap_or(d)
-                        .to_string()
-                });
+                let doi = w
+                    .doi
+                    .as_ref()
+                    .map(|d| d.strip_prefix("https://doi.org/").unwrap_or(d).to_string());
 
                 let pdf_url = w.open_access.and_then(|oa| oa.oa_url);
 

@@ -1,6 +1,6 @@
+use crate::paper::Paper;
 use anyhow::Result;
 use async_trait::async_trait;
-use crate::paper::Paper;
 
 #[async_trait]
 pub trait PaperProvider: Send + Sync {

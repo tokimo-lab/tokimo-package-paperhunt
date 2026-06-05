@@ -143,11 +143,7 @@ impl PaperProvider for SemanticScholarProvider {
         }
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
-            anyhow::bail!(
-                "Semantic Scholar API returned HTTP {}: {}",
-                status,
-                body
-            );
+            anyhow::bail!("Semantic Scholar API returned HTTP {}: {}", status, body);
         }
 
         let ss_resp: SsResponse = resp
@@ -168,23 +164,16 @@ fn convert_papers(ss_resp: SsResponse) -> Vec<Paper> {
         .data
         .into_iter()
         .map(|p| {
-            let authors = p
-                .authors
-                .iter()
-                .filter_map(|a| a.name.clone())
-                .collect();
+            let authors = p.authors.iter().filter_map(|a| a.name.clone()).collect();
 
             let doi = p.external_ids.as_ref().and_then(|e| e.doi.clone());
             let arxiv_id = p.external_ids.as_ref().and_then(|e| e.arxiv_id.clone());
 
-            let pdf_url = p
-                .open_access_pdf
-                .and_then(|oa| oa.url)
-                .or_else(|| {
-                    arxiv_id
-                        .as_ref()
-                        .map(|id| format!("https://arxiv.org/pdf/{}", id))
-                });
+            let pdf_url = p.open_access_pdf.and_then(|oa| oa.url).or_else(|| {
+                arxiv_id
+                    .as_ref()
+                    .map(|id| format!("https://arxiv.org/pdf/{}", id))
+            });
 
             Paper {
                 title: p.title.unwrap_or_default(),
