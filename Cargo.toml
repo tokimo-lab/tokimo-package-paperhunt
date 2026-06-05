@@ -2,6 +2,12 @@
 name = "paperhunt"
 version = "0.1.0"
 edition = "2021"
+description = "Multi-source academic paper search and download library (arXiv, OpenAlex, Semantic Scholar)"
+license = "MIT"
+repository = "https://github.com/tokimo-lab/tokimo-package-paperhunt"
+homepage = "https://github.com/tokimo-lab/tokimo-package-paperhunt"
+keywords = ["papers", "academic", "arxiv", "search", "download"]
+categories = ["science"]
 
 [lib]
 name = "paperhunt"
